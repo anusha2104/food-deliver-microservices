@@ -6,7 +6,7 @@ COPY requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY order-service/main.py .
+COPY order-service/ .
 
 EXPOSE 8001
 

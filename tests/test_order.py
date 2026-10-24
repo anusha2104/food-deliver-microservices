@@ -41,9 +41,11 @@ def test_invalid_restaurant(mock_get):
     assert response.json()["detail"] == "Restaurant not found"
 
 
+
+@patch("order_app.SessionLocal")
 @patch("order_app.httpx.post")
 @patch("order_app.httpx.get")
-def test_valid_restaurant(mock_get, mock_post):
+def test_valid_restaurant(mock_get, mock_post, mock_session_local):
     mock_get.return_value.json.return_value = [
         {"id": 1, "name": "Spice Garden"}
     ]
@@ -57,6 +59,14 @@ def test_valid_restaurant(mock_get, mock_post):
     }
     mock_post.return_value.raise_for_status.return_value = None
 
+    # Mock the database session
+    mock_db = mock_session_local.return_value
+
+    def assign_id(order):
+        order.id = 1
+
+    mock_db.refresh.side_effect = assign_id
+
     response = client.post(
         "/orders",
         json={
@@ -65,6 +75,15 @@ def test_valid_restaurant(mock_get, mock_post):
             "item": "Pizza"
         }
     )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "Placed"
+    assert response.json()["delivery"]["status"] == "Preparing"
+
+    mock_db.add.assert_called_once()
+    mock_db.commit.assert_called_once()
+    mock_db.close.assert_called_once()
+
 
     assert response.status_code == 200
     assert response.json()["status"] == "Placed"

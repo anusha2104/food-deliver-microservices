@@ -35,7 +35,8 @@ def home():
 def health():
     return {
         "service": "restaurant-service",
-        "status": "healthy"}
+        "status": "healthy"
+    }
 
 
 @app.get("/restaurants")

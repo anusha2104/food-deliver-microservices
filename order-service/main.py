@@ -1,31 +1,46 @@
-
 from fastapi import FastAPI, HTTPException
-import httpx
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+import httpx
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from database import Base, engine, SessionLocal
+from models import Order
 
 app = FastAPI(title="Order Service")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5500", "http://localhost:5500",],
+    allow_origins=[
+        "http://127.0.0.1:5500",
+        "http://localhost:5500",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
-orders = []
+if os.getenv("DATABASE_URL"):
+    Base.metadata.create_all(bind=engine)
 
 
 @app.get("/")
 def home():
     return {"message": "Order Service is running!"}
 
+
 @app.get("/health")
 def health():
-    return {
-        "service": "order-service",
-        "status": "healthy"
-    }
+    try:
+        with engine.connect():
+            pass
+        return {"service": "order-service", "status": "healthy"}
+    except Exception:
+        raise HTTPException(status_code=503, detail="Database unavailable")
 
 
 @app.post("/orders")
@@ -35,68 +50,101 @@ def create_order(order: dict):
     try:
         response = httpx.get(
             "http://restaurant-service:8000/restaurants",
-            timeout=5.0
+            timeout=5.0,
         )
         response.raise_for_status()
         restaurants = response.json()
-
     except httpx.HTTPError:
         raise HTTPException(
             status_code=503,
-            detail="Restaurant Service is unavailable"
+            detail="Restaurant Service is unavailable",
         )
 
-    restaurant_exists = any(
-        restaurant["id"] == restaurant_id
-        for restaurant in restaurants
-    )
+    if not any(r["id"] == restaurant_id for r in restaurants):
+        raise HTTPException(status_code=404, detail="Restaurant not found")
 
-    if not restaurant_exists:
-        raise HTTPException(
-            status_code=404,
-            detail="Restaurant not found"
-        )
-
-    order["id"] = len(orders) + 1
-    order["status"] = "Placed"
-    orders.append(order)
-    
+    db: Session = SessionLocal()
     try:
-        response = httpx.post(
-            "http://delivery-service:8002/deliveries",
-            json={
-                "order_id": order["id"],
-                "restaurant_id": restaurant_id
-            }, timeout=5.0)
-        response.raise_for_status()
-        order["delivery"] = response.json()
+        new_order = Order(
+            restaurant_id=restaurant_id,
+            customer=order.get("customer", "Guest"),
+            item=order.get("item", ""),
+            price=order.get("price", 0),
+            status="Placed",
+        )
+        db.add(new_order)
+        db.commit()
+        db.refresh(new_order)
 
-    except httpx.HTTPError:
-        order["delivery"] = {"status": "Could not contact Delivery Service"}
-    return order
+        result = {
+            "id": new_order.id,
+            "restaurant_id": new_order.restaurant_id,
+            "customer": new_order.customer,
+            "item": new_order.item,
+            "price": new_order.price,
+            "status": new_order.status,
+        }
+
+        try:
+            response = httpx.post(
+                "http://delivery-service:8002/deliveries",
+                json={
+                    "order_id": new_order.id,
+                    "restaurant_id": restaurant_id,
+                },
+                timeout=5.0,
+            )
+            response.raise_for_status()
+            result["delivery"] = response.json()
+        except httpx.HTTPError:
+            result["delivery"] = {
+                "status": "Could not contact Delivery Service"
+            }
+
+        return result
+    finally:
+        db.close()
 
 
 @app.get("/orders")
 def get_orders():
-    updated_orders = []
-
-    for order in orders:
-        order_copy = order.copy()
+    db: Session = SessionLocal()
+    try:
+        orders = db.query(Order).order_by(Order.id).all()
+        updated_orders = []
 
         try:
-            response = httpx.get( "http://delivery-service:8002/deliveries", timeout=5.0)
+            response = httpx.get(
+                "http://delivery-service:8002/deliveries",
+                timeout=5.0,
+            )
             response.raise_for_status()
             deliveries = response.json()
+        except httpx.HTTPError:
+            deliveries = []
 
-            matching_delivery = next(
-                (delivery for delivery in deliveries if delivery.get("order_id") == order["id"]), None)
+        for order in orders:
+            result = {
+                "id": order.id,
+                "restaurant_id": order.restaurant_id,
+                "customer": order.customer,
+                "item": order.item,
+                "price": order.price,
+                "status": order.status,
+            }
 
-            if matching_delivery:
-                order_copy["delivery"] = matching_delivery
-        
-        except (httpx.RequestError, httpx.HTTPStatusError):
-            pass
+            matching = next(
+                (
+                    d for d in deliveries
+                    if d.get("order_id") == order.id
+                ),
+                None,
+            )
+            if matching:
+                result["delivery"] = matching
 
-        updated_orders.append(order_copy)
+            updated_orders.append(result)
 
-    return updated_orders
+        return updated_orders
+    finally:
+        db.close()

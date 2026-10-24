@@ -18,15 +18,21 @@ services:
       dockerfile: order-service/Dockerfile
     ports:
       - "8001:8001"
-    depends_on:
-      - restaurant-service
-      - delivery-service
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 15s
       timeout: 5s
       retries: 3
       start_period: 10s
+    environment:
+      DATABASE_URL: "postgresql://gather_user:gather_dev_password@postgres:5432/gather"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      restaurant-service:
+        condition: service_started
+      delivery-service:
+        condition: service_started
   delivery-service:
     build: 
       context: .
@@ -39,3 +45,21 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: gather
+      POSTGRES_USER: gather_user
+      POSTGRES_PASSWORD: gather_dev_password
+    
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gather_user -d gather"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
