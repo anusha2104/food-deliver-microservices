@@ -1,8 +1,17 @@
 
 from fastapi import FastAPI, HTTPException
 import httpx
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Order Service")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://127.0.0.1:5500", "http://localhost:5500",],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
 
 orders = []
 
@@ -10,6 +19,13 @@ orders = []
 @app.get("/")
 def home():
     return {"message": "Order Service is running!"}
+
+@app.get("/health")
+def health():
+    return {
+        "service": "order-service",
+        "status": "healthy"
+    }
 
 
 @app.post("/orders")
@@ -62,4 +78,25 @@ def create_order(order: dict):
 
 @app.get("/orders")
 def get_orders():
-    return orders
+    updated_orders = []
+
+    for order in orders:
+        order_copy = order.copy()
+
+        try:
+            response = httpx.get( "http://delivery-service:8002/deliveries", timeout=5.0)
+            response.raise_for_status()
+            deliveries = response.json()
+
+            matching_delivery = next(
+                (delivery for delivery in deliveries if delivery.get("order_id") == order["id"]), None)
+
+            if matching_delivery:
+                order_copy["delivery"] = matching_delivery
+        
+        except (httpx.RequestError, httpx.HTTPStatusError):
+            pass
+
+        updated_orders.append(order_copy)
+
+    return updated_orders
