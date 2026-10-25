@@ -1,10 +1,10 @@
-name: Food Delivery CI
+name: Food Delivery CI/CD
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
 
 jobs:
   test:
@@ -14,13 +14,35 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      
+
       - name: Install dependencies
         run: pip install -r requirements.txt
 
       - name: Run automated tests
         run: python -m pytest tests -v
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to AWS EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ~/food-deliver-microservices
+            git fetch origin master
+            git reset --hard origin/master
+            docker compose up -d --build
+            docker compose restart frontend
+            curl -fsS http://localhost/ >/dev/null
+            curl -fsS http://localhost/restaurants >/dev/null
+            echo "Deployment successful!"
