@@ -1,6 +1,5 @@
-const RESTAURANT_API = "http://127.0.0.1:8000";
-const ORDER_API = "http://127.0.0.1:8001";
-
+const RESTAURANT_API = "";
+const ORDER_API = "";
 const menus = {
   1: {
     image: "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=1000&q=85",
