@@ -1,6 +1,6 @@
 services:
   restaurant-service:
-    build: 
+    build:
       context: .
       dockerfile: restaurant-service/Dockerfile
     ports:
@@ -14,17 +14,11 @@ services:
 
   order-service:
     image: food-delivery-order-service:latest
-    build: 
+    build:
       context: .
       dockerfile: order-service/Dockerfile
     ports:
       - "8001:8001"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
     environment:
       DATABASE_URL: "postgresql://gather_user:gather_dev_password@postgres:5432/gather"
     depends_on:
@@ -34,12 +28,19 @@ services:
         condition: service_started
       delivery-service:
         condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   delivery-service:
-    build: 
+    build:
       context: .
       dockerfile: delivery-service/Dockerfile
     ports:
-      - "8002:8002" 
+      - "8002:8002"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
       interval: 15s
@@ -53,7 +54,6 @@ services:
       POSTGRES_DB: gather
       POSTGRES_USER: gather_user
       POSTGRES_PASSWORD: gather_dev_password
-    
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -61,6 +61,18 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  frontend:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - restaurant-service
+      - order-service
+      - delivery-service
 
 volumes:
   postgres_data:
